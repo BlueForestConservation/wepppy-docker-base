@@ -1,30 +1,25 @@
 # Use multiarch/qemu-user-static for cross-architecture support
-FROM --platform=linux/amd64 ubuntu:22.04 as base
+FROM ubuntu:22.04 AS base 
+
+# can specify arch during build
+# e.g. docker buildx build --platform linux/amd64,linux/arm64 -t wepppy-multiarch --push .
+
 
 # Set environment variables
 ENV TZ=America/Los_Angeles
 ENV CXX=x86_64-linux-gnu-g++
 ENV CC=x86_64-linux-gnu-gcc
-ENV PYTHONPATH=/workdir/wepppy/:/workdir/wepppy2:$PYTHONPATH
 ENV PROJ_LIB=/usr/share/proj/
-ENV GTIFF_SRS_SOURCE=EPSG
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends qemu-user-static && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install Cross-Build Dependencies for Multiarch
-RUN apt-get update && \
+# Install dependencies and cross-compilation tools
+RUN dpkg --add-architecture amd64 && \
+    apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-    software-properties-common \
+    qemu-user-static \
     crossbuild-essential-amd64 \
-    crossbuild-essential-arm64 \
     g++-x86-64-linux-gnu \
-    g++-aarch64-linux-gnu \
     gcc-x86-64-linux-gnu \
-    gcc-aarch64-linux-gnu \
     libc6-dev-amd64-cross \
-    libc6-dev-arm64-cross \
     cmake \
     meson \
     ninja-build \
@@ -40,6 +35,7 @@ RUN apt-get update && \
     git-lfs \
     ufw \
     gnutls-bin \
+    python3-numpy \
     python3-dev \
     python3-pip \
     libpython3-dev \
@@ -53,25 +49,12 @@ RUN apt-get update && \
     supervisor && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Add UbuntuGIS PPA and Install PROJ Separately
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends software-properties-common gnupg curl && \
-    mkdir -p /etc/apt/keyrings && \
-    rm -rf /var/lib/apt/lists/lock && \
-    while lsof /var/lib/apt/lists/lock; do echo "Waiting for apt lock..."; sleep 2; done && \
-    curl -fsSL http://keyserver.ubuntu.com/pks/lookup?op=get&search=0x089EBE08314DF160 | gpg --dearmor -o /etc/apt/keyrings/ubuntugis.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/ubuntugis.gpg] http://ppa.launchpad.net/ubuntugis/ubuntugis-unstable/ubuntu jammy main" | tee /etc/apt/sources.list.d/ubuntugis.list && \
-    apt-get update && \
-    apt-get install -y proj-bin && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Ensure correct compiler installation
+# Verify that the correct cross-compiler is installed
 RUN file /usr/bin/gcc && \
     file /usr/bin/g++ && \
     file /usr/bin/x86_64-linux-gnu-gcc && \
     file /usr/bin/x86_64-linux-gnu-g++
 
-# Create work directory
 RUN mkdir /worker
 WORKDIR /workdir
 
@@ -79,18 +62,15 @@ WORKDIR /workdir
 RUN rm -rf /usr/lib/python3/dist-packages/blinker* && \
     rm -rf /usr/lib/python3.*/dist-packages/blinker*
 
+
 # Copy requirements.txt before running pip install
 COPY requirements.txt /workdir/
 
-# Install Python dependencies with fixes for NumPy and Paramiko
+# Install Python dependencies
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --upgrade --force-reinstall "numpy<2"
+    pip install --no-cache-dir -r requirements.txt
 
-# Upgrade PROJ database to avoid CRS warnings
-RUN add-apt-repository ppa:ubuntugis/ubuntugis-unstable && \
-    apt-get update && \
-    apt-get install -y proj-bin
+RUN pip install jupyterlab
 
 # Install wepppy
 RUN git clone --depth 1 https://github.com/rogerlew/wepppy /workdir/wepppy && \
@@ -114,18 +94,22 @@ RUN git clone --depth 1 https://github.com/wepp-in-the-woods/wepppyo3 /workdir/w
 # Set up OpenTopography API Key
 RUN echo "OPENTOPOGRAPHY_API_KEY=" > /workdir/wepppy/wepppy/locales/earth/opentopography/.env
 
-# Configure and start Redis correctly
-RUN sed -i 's/daemonize yes/daemonize no/g' /etc/redis/redis.conf && \
-    echo "supervisord -c /etc/supervisor/conf.d/supervisord.conf" > /workdir/start.sh && \
-    chmod +x /workdir/start.sh
+# Ensure Redis is installed
+RUN apt-get update && apt-get install -y redis-server
+
+# Modify redis.conf only if it exists
+RUN if [ -f /etc/redis/redis.conf ]; then \
+    sed -i 's/^daemonize yes/daemonize no/' /etc/redis/redis.conf; \
+    fi
+
+# ensure relevant libraries can be found in python
+RUN export PYTHONPATH="/workdir/wepppy2:$PYTHONPATH" && export PYTHONPATH="/workdir/wepppy:$PYTHONPATH"
 
 # Expose required ports
 EXPOSE 80 5003
 
 VOLUME /geodata
 
-# Copy supervisor config
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Start services
-CMD ["/workdir/start.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
