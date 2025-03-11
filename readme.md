@@ -22,8 +22,8 @@ docker buildx inspect --bootstrap
 Clone this repository and navigate into it:
 
 ```bash
-git clone <repository-url>
-cd <repository-directory>
+git clone https://github.com/BlueForestConservation/wepppy-docker-base.git
+cd wepppy-docker-base
 ```
 
 ## Building Docker Image
@@ -62,7 +62,7 @@ Run Jupyter Lab with a volume mount:
 docker run --platform linux/amd64 -p 8888:8888 --name wepppy-container -v $(pwd)/volume_to_mount:/geodata wepppy jupyter lab --NotebookApp.notebook_dir=/ --ip=0.0.0.0 --allow-root
 ```
 
-Inside Jupyter shell, start Redis to enable wepppy:
+Inside Jupyter shell, start Redis to enable wepppy functionality:
 
 ```bash
 !redis-server --daemonize yes
