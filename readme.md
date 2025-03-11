@@ -62,7 +62,7 @@ Run Jupyter Lab with a volume mount:
 docker run --platform linux/amd64 -p 8888:8888 --name wepppy-container -v $(pwd)/volume_to_mount:/geodata wepppy jupyter lab --NotebookApp.notebook_dir=/ --ip=0.0.0.0 --allow-root
 ```
 
-Inside Jupyter shell, start Redis to enable wepppy functionality:
+Inside a Jupyter cell, start Redis to enable wepppy functionality by running:
 
 ```bash
 !redis-server --daemonize yes
